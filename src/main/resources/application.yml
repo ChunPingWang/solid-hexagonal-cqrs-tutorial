@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: hexagonal-cqrs-tutorial
+  threads:
+    virtual:
+      enabled: true    # Java 21 Virtual Threads 支援
+
+server:
+  port: 8080

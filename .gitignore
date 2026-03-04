@@ -1,5 +1,12 @@
-node_modules/
-dist/
-coverage/
-*.js.map
+.gitignore
+target/
+*.class
+*.jar
+*.war
+.idea/
+*.iml
+.settings/
+.project
+.classpath
+.vscode/
 .env

@@ -1,259 +1,208 @@
-# 六角形架構 + CQRS + SOLID 原則 教學專案
+# 六角形架構 + CQRS + SOLID 原則教學
 
-> 透過一個**訂單管理系統**，學習如何結合六角形架構 (Hexagonal Architecture)、CQRS 模式 (Command Query Responsibility Segregation) 與 SOLID 原則，設計出乾淨、可測試、可擴展的軟體架構。
+> **Java 21 + Spring Boot 4** 實作範例 — 訂單管理系統
+
+本專案透過一個完整的「訂單管理系統」，示範如何結合 **六角形架構（Hexagonal Architecture / Ports & Adapters）**、**CQRS（Command Query Responsibility Segregation）** 和 **SOLID 原則**，打造高內聚、低耦合、易測試的企業級應用程式。
 
 ---
 
 ## 目錄
 
+- [技術棧](#技術棧)
 - [快速開始](#快速開始)
-- [專案結構](#專案結構)
-- [架構總覽圖](#架構總覽圖)
+- [架構圖](#架構圖)
 - [類別圖](#類別圖)
 - [循序圖](#循序圖)
-- [三大架構概念詳解](#三大架構概念詳解)
-  - [1. SOLID 原則](#1-solid-原則)
-  - [2. 六角形架構](#2-六角形架構-hexagonal-architecture)
-  - [3. CQRS 模式](#3-cqrs-模式)
-- [架構比較與優劣分析](#架構比較與優劣分析)
+- [狀態機圖](#狀態機圖)
+- [SOLID 原則對照](#solid-原則對照)
+- [CQRS 模式詳解](#cqrs-模式詳解)
+- [六角形架構詳解](#六角形架構詳解)
+- [專案結構](#專案結構)
+- [API 端點](#api-端點)
 - [測試](#測試)
-- [教學文件](#教學文件)
-- [延伸思考](#延伸思考)
+- [架構優劣比較](#架構優劣比較)
+- [Java 21 特性展示](#java-21-特性展示)
+
+---
+
+## 技術棧
+
+| 技術 | 版本 | 用途 |
+|------|------|------|
+| Java | 21 | Records、Sealed Interfaces、Text Blocks |
+| Spring Boot | 4.0.0 | Web 框架、依賴注入、測試 |
+| Spring Framework | 7.0 | 核心框架 |
+| Maven | 3.9+ | 建構工具 |
+| JUnit | 6.0 | 單元測試 |
+| AssertJ | 3.27 | 流暢斷言 |
+| MockMvc | — | REST 整合測試 |
 
 ---
 
 ## 快速開始
 
 ```bash
-npm install           # 安裝依賴
-npm test              # 執行測試（46 個測試案例）
-npm start             # 執行範例程式
-npm run build         # 編譯 TypeScript
-npm run test:coverage # 執行測試覆蓋率報告
+# 編譯
+mvn compile
+
+# 執行測試（46 個測試）
+mvn test
+
+# 啟動應用程式
+mvn spring-boot:run
+
+# 建立訂單
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": "c1",
+    "items": [
+      {"productId": "p1", "productName": "鍵盤", "unitPrice": 2500, "quantity": 1},
+      {"productId": "p2", "productName": "滑鼠", "unitPrice": 800, "quantity": 2}
+    ]
+  }'
 ```
 
 ---
 
-## 專案結構
+## 架構圖
 
-```
-solid-hexagonal-cqrs-tutorial/
-│
-├── src/
-│   ├── domain/                          # 領域層（最內層 - 零外部依賴）
-│   │   ├── models/
-│   │   │   ├── Order.ts                 #   訂單聚合根（Aggregate Root）
-│   │   │   ├── OrderItem.ts             #   訂單項目值物件（Value Object）
-│   │   │   └── Product.ts               #   產品值物件（Value Object）
-│   │   ├── events/
-│   │   │   └── DomainEvent.ts           #   領域事件定義
-│   │   └── errors/
-│   │       └── DomainError.ts           #   領域錯誤定義
-│   │
-│   ├── application/                     # 應用層（中間層 - 協調業務流程）
-│   │   ├── ports/
-│   │   │   ├── input/                   #   Input Ports（驅動端介面）
-│   │   │   │   ├── CreateOrderUseCase.ts
-│   │   │   │   ├── GetOrderUseCase.ts
-│   │   │   │   ├── ConfirmOrderUseCase.ts
-│   │   │   │   └── CancelOrderUseCase.ts
-│   │   │   └── output/                  #   Output Ports（被驅動端介面）
-│   │   │       ├── OrderRepository.ts   #   讀寫分離的儲存庫介面（ISP）
-│   │   │       ├── EventPublisher.ts
-│   │   │       └── IdGenerator.ts
-│   │   ├── commands/                    #   CQRS 命令端 Handlers
-│   │   │   ├── CreateOrderHandler.ts
-│   │   │   ├── ConfirmOrderHandler.ts
-│   │   │   └── CancelOrderHandler.ts
-│   │   └── queries/                     #   CQRS 查詢端 Handlers
-│   │       └── GetOrderHandler.ts
-│   │
-│   ├── adapters/                        # 適配器層（最外層 - 與外部世界對接）
-│   │   ├── input/                       #   Driving Adapters（驅動適配器）
-│   │   │   └── api/
-│   │   │       └── OrderController.ts
-│   │   └── output/                      #   Driven Adapters（被驅動適配器）
-│   │       ├── persistence/
-│   │       │   ├── InMemoryOrderCommandRepository.ts
-│   │       │   └── InMemoryOrderQueryRepository.ts
-│   │       ├── messaging/
-│   │       │   └── InMemoryEventPublisher.ts
-│   │       └── IdGeneratorAdapter.ts
-│   │
-│   ├── infrastructure/                  # 基礎設施（組裝層）
-│   │   └── DependencyInjection.ts       #   DI 容器
-│   │
-│   └── index.ts                         # 入口程式
-│
-├── tests/                               # 測試
-│   ├── domain/Order.test.ts             #   領域模型單元測試（25 tests）
-│   ├── application/
-│   │   ├── CreateOrderHandler.test.ts   #   建立訂單命令測試（5 tests）
-│   │   ├── ConfirmAndCancelHandler.test.ts  # 確認/取消命令測試（5 tests）
-│   │   └── GetOrderHandler.test.ts      #   CQRS 查詢端測試（4 tests）
-│   └── adapters/
-│       └── OrderController.test.ts      #   端到端整合測試（7 tests）
-│
-└── docs/                                # 教學文件
-    ├── 01-solid-principles.md
-    ├── 02-hexagonal-architecture.md
-    └── 03-cqrs-pattern.md
-```
-
----
-
-## 架構總覽圖
-
-### 六角形架構 + CQRS 全景
+### 整體六角形架構 + CQRS 全景
 
 ```mermaid
 graph TB
     subgraph External["外部世界"]
-        User["使用者 / API 客戶端"]
-        DB["資料庫 / 持久化儲存"]
-        MQ["訊息佇列"]
+        HTTP["HTTP Client / REST API"]
+        DB[("未來: Database")]
+        MQ["未來: Message Queue"]
     end
 
-    subgraph Adapters["適配器層 Adapters"]
-        subgraph DrivingAdapters["驅動適配器 (Input)"]
-            Controller["OrderController<br/>REST API 入口"]
-        end
-
-        subgraph DrivenAdapters["被驅動適配器 (Output)"]
-            CmdRepo["InMemoryOrderCommandRepository<br/>寫入儲存庫"]
-            QryRepo["InMemoryOrderQueryRepository<br/>讀取儲存庫"]
-            EvtPub["InMemoryEventPublisher<br/>事件發布者"]
-            IdGen["UuidGenerator<br/>ID 產生器"]
-        end
+    subgraph Driving["驅動適配器 Driving Adapters"]
+        REST["OrderRestController<br/>@RestController"]
+        EXH["GlobalExceptionHandler<br/>@RestControllerAdvice"]
     end
 
-    subgraph Application["應用層 Application"]
-        subgraph InputPorts["Input Ports（驅動端介面）"]
-            CreateUC["CreateOrderUseCase"]
-            ConfirmUC["ConfirmOrderUseCase"]
-            CancelUC["CancelOrderUseCase"]
-            GetUC["GetOrderUseCase"]
-            ListUC["ListOrdersUseCase"]
+    subgraph Application["應用層 Application Layer"]
+        subgraph InputPorts["輸入埠 Input Ports"]
+            COU["CreateOrderUseCase"]
+            CFOU["ConfirmOrderUseCase"]
+            CAOU["CancelOrderUseCase"]
+            GOU["GetOrderUseCase"]
+            LOU["ListOrdersUseCase"]
         end
 
-        subgraph CommandSide["CQRS 命令端（寫入）"]
-            CreateH["CreateOrderHandler"]
-            ConfirmH["ConfirmOrderHandler"]
-            CancelH["CancelOrderHandler"]
+        subgraph CommandHandlers["Command Handlers（寫入端）"]
+            COH["CreateOrderHandler"]
+            CFOH["ConfirmOrderHandler"]
+            CAOH["CancelOrderHandler"]
         end
 
-        subgraph QuerySide["CQRS 查詢端（讀取）"]
-            GetH["GetOrderHandler"]
-            ListH["ListOrdersHandler"]
+        subgraph QueryHandlers["Query Handlers（讀取端）"]
+            GOH["GetOrderHandler"]
+            LOH["ListOrdersHandler"]
         end
 
-        subgraph OutputPorts["Output Ports（被驅動端介面）"]
-            CmdRepoPort["OrderCommandRepository"]
-            QryRepoPort["OrderQueryRepository"]
-            EvtPubPort["EventPublisher"]
-            IdGenPort["IdGenerator"]
+        subgraph OutputPorts["輸出埠 Output Ports"]
+            OCR["OrderCommandRepository"]
+            OQR["OrderQueryRepository"]
+            EP["EventPublisher"]
+            IG["IdGenerator"]
         end
     end
 
-    subgraph Domain["領域層 Domain（核心）"]
-        Order["Order<br/>聚合根"]
-        OrderItem["OrderItem<br/>值物件"]
-        Product["Product<br/>值物件"]
-        Events["DomainEvent<br/>領域事件"]
-        Errors["DomainError<br/>領域錯誤"]
+    subgraph Domain["領域層 Domain Layer"]
+        O["Order<br/>Aggregate Root"]
+        OI["OrderItem<br/>Value Object (record)"]
+        DE["DomainEvent<br/>sealed interface"]
+        OS["OrderStatus<br/>enum"]
     end
 
-    User --> Controller
-    Controller --> CreateUC & ConfirmUC & CancelUC & GetUC & ListUC
+    subgraph Driven["被驅動適配器 Driven Adapters"]
+        IMCR["InMemoryOrderCommandRepository"]
+        IMQR["InMemoryOrderQueryRepository"]
+        IMEP["InMemoryEventPublisher"]
+        UUID["UuidGeneratorAdapter"]
+    end
 
-    CreateUC -.->|implements| CreateH
-    ConfirmUC -.->|implements| ConfirmH
-    CancelUC -.->|implements| CancelH
-    GetUC -.->|implements| GetH
-    ListUC -.->|implements| ListH
-
-    CreateH --> Order & OrderItem
-    ConfirmH --> Order
-    CancelH --> Order
-    CreateH --> CmdRepoPort & EvtPubPort & IdGenPort
-    ConfirmH --> CmdRepoPort & EvtPubPort
-    CancelH --> CmdRepoPort & EvtPubPort
-    GetH --> QryRepoPort
-    ListH --> QryRepoPort
-
-    Order --> Events & Errors
-    OrderItem --> Errors
-
-    CmdRepoPort -.->|implements| CmdRepo
-    QryRepoPort -.->|implements| QryRepo
-    EvtPubPort -.->|implements| EvtPub
-    IdGenPort -.->|implements| IdGen
-
-    CmdRepo --> DB
-    QryRepo --> DB
-    EvtPub --> MQ
-    EvtPub -->|同步 Read Model| QryRepo
-
-    style Domain fill:#4a90d9,color:#fff
-    style Application fill:#7ab648,color:#fff
-    style Adapters fill:#e8943a,color:#fff
-    style External fill:#888,color:#fff
+    HTTP --> REST
+    REST --> COU & CFOU & CAOU & GOU & LOU
+    COU -.-> COH
+    CFOU -.-> CFOH
+    CAOU -.-> CAOH
+    GOU -.-> GOH
+    LOU -.-> LOH
+    COH --> OCR & EP & IG
+    CFOH --> OCR & EP
+    CAOH --> OCR & EP
+    GOH --> OQR
+    LOH --> OQR
+    COH --> O
+    OCR -.-> IMCR
+    OQR -.-> IMQR
+    EP -.-> IMEP
+    IG -.-> UUID
+    IMEP --> IMCR
+    IMEP --> IMQR
 ```
 
-### 依賴方向（由外向內）
+### 依賴方向（DIP 體現）
 
 ```mermaid
 graph LR
-    A["Adapters<br/>適配器層<br/>(最外層)"] -->|依賴| B["Application<br/>應用層<br/>(中間層)"]
-    B -->|依賴| C["Domain<br/>領域層<br/>(最內層)"]
+    subgraph "外層 - 基礎設施"
+        A["REST Controller<br/>InMemory Repos<br/>EventPublisher Impl<br/>BeanConfiguration"]
+    end
 
-    style A fill:#e8943a,color:#fff
-    style B fill:#7ab648,color:#fff
-    style C fill:#4a90d9,color:#fff
+    subgraph "中層 - 應用層"
+        B["Use Case Interfaces<br/>Handlers<br/>DTOs (records)"]
+    end
+
+    subgraph "內層 - 領域層"
+        C["Order Aggregate<br/>Domain Events<br/>Value Objects"]
+    end
+
+    A -->|依賴| B
+    B -->|依賴| C
 ```
 
-> **關鍵規則**：依賴只能由外層指向內層，內層絕不依賴外層。Domain 層零外部依賴。
+> **關鍵規則**：依賴只能由外層指向內層。Domain 層對 Spring 框架零依賴。
 
 ---
 
 ## 類別圖
 
-### Domain Layer 類別圖
+### 領域模型類別圖
 
 ```mermaid
 classDiagram
     class Order {
-        +string id
-        +string customerId
-        -OrderItem[] _items
-        -OrderStatus _status
-        -Date _createdAt
-        -DomainEvent[] _domainEvents
-        +items: ReadonlyArray~OrderItem~
-        +status: OrderStatus
-        +createdAt: Date
-        +totalAmount: number
-        +domainEvents: ReadonlyArray~DomainEvent~
-        +addItem(item: OrderItem) void
+        -String id
+        -String customerId
+        -Instant createdAt
+        -List~OrderItem~ items
+        -List~DomainEvent~ domainEvents
+        -OrderStatus status
+        +getId() String
+        +getCustomerId() String
+        +getStatus() OrderStatus
+        +getItems() List~OrderItem~
+        +getTotalAmount() double
+        +getDomainEvents() List~DomainEvent~
+        +addItem(OrderItem) void
         +confirm() void
-        +cancel(reason: string) void
+        +cancel(String) void
         +clearEvents() void
-        +create(id, customerId)$ Order
+        +create(String, String)$ Order
         +reconstruct(...)$ Order
     }
 
     class OrderItem {
-        +string productId
-        +string productName
-        +number unitPrice
-        +number quantity
-        +number subtotal
-    }
-
-    class Product {
-        +string id
-        +string name
-        +number price
+        <<record>>
+        +String productId
+        +String productName
+        +double unitPrice
+        +int quantity
+        +subtotal() double
     }
 
     class OrderStatus {
@@ -264,888 +213,541 @@ classDiagram
     }
 
     class DomainEvent {
-        <<interface>>
-        +string eventId
-        +string eventType
-        +Date occurredOn
-        +string aggregateId
+        <<sealed interface>>
+        +eventId() String
+        +eventType() String
+        +occurredOn() Instant
+        +aggregateId() String
     }
 
     class OrderCreatedEvent {
-        +string customerId
-        +number totalAmount
+        <<record>>
+        +String customerId
+        +double totalAmount
     }
 
     class OrderItemAddedEvent {
-        +string productId
-        +number quantity
+        <<record>>
+        +String productId
+        +int quantity
     }
 
     class OrderConfirmedEvent {
+        <<record>>
     }
 
     class OrderCancelledEvent {
-        +string reason
+        <<record>>
+        +String reason
     }
 
-    class DomainError {
-        +string message
-        +string name
-    }
-
-    class OrderNotFoundError
-    class InvalidOrderOperationError
-    class InvalidOrderItemError
-
-    Order "1" *-- "*" OrderItem : contains
-    Order --> OrderStatus : has status
+    Order *-- OrderItem : contains
+    Order --> OrderStatus : has
     Order --> DomainEvent : produces
-
-    DomainEvent <|.. OrderCreatedEvent
-    DomainEvent <|.. OrderItemAddedEvent
-    DomainEvent <|.. OrderConfirmedEvent
-    DomainEvent <|.. OrderCancelledEvent
-
-    DomainError <|-- OrderNotFoundError
-    DomainError <|-- InvalidOrderOperationError
-    DomainError <|-- InvalidOrderItemError
-
-    Order ..> InvalidOrderOperationError : throws
-    OrderItem ..> InvalidOrderItemError : throws
+    DomainEvent <|.. OrderCreatedEvent : implements
+    DomainEvent <|.. OrderItemAddedEvent : implements
+    DomainEvent <|.. OrderConfirmedEvent : implements
+    DomainEvent <|.. OrderCancelledEvent : implements
 ```
 
-### Application Layer 類別圖（Ports & Handlers）
+### Ports & Adapters 類別圖
 
 ```mermaid
 classDiagram
-    %% Input Ports
     class CreateOrderUseCase {
         <<interface>>
-        +execute(input: CreateOrderInput) Promise~CreateOrderOutput~
+        +execute(CreateOrderInput) CreateOrderOutput
     }
-
-    class GetOrderUseCase {
-        <<interface>>
-        +execute(orderId: string) Promise~OrderView~
-    }
-
-    class ListOrdersUseCase {
-        <<interface>>
-        +execute(customerId?: string) Promise~OrderView[]~
-    }
-
     class ConfirmOrderUseCase {
         <<interface>>
-        +execute(orderId: string) Promise~ConfirmOrderOutput~
+        +execute(String) ConfirmOrderOutput
     }
-
     class CancelOrderUseCase {
         <<interface>>
-        +execute(orderId: string, reason: string) Promise~CancelOrderOutput~
+        +execute(String, String) CancelOrderOutput
+    }
+    class GetOrderUseCase {
+        <<interface>>
+        +execute(String) OrderView
+    }
+    class ListOrdersUseCase {
+        <<interface>>
+        +execute(String) List~OrderView~
     }
 
-    %% Output Ports
     class OrderCommandRepository {
         <<interface>>
-        +save(order: Order) Promise~void~
-        +findById(id: string) Promise~Order | null~
+        +save(Order) void
+        +findById(String) Optional~Order~
     }
-
     class OrderQueryRepository {
         <<interface>>
-        +findById(id: string) Promise~OrderReadModel | null~
-        +findAll() Promise~OrderReadModel[]~
-        +findByCustomerId(customerId: string) Promise~OrderReadModel[]~
+        +findById(String) Optional~OrderReadModel~
+        +findAll() List~OrderReadModel~
+        +findByCustomerId(String) List~OrderReadModel~
     }
-
     class EventPublisher {
         <<interface>>
-        +publish(event: DomainEvent) Promise~void~
-        +publishAll(events: DomainEvent[]) Promise~void~
+        +publish(DomainEvent) void
+        +publishAll(List~DomainEvent~) void
     }
-
     class IdGenerator {
         <<interface>>
-        +generate() string
+        +generate() String
     }
 
-    %% Command Handlers
-    class CreateOrderHandler {
-        -OrderCommandRepository orderRepository
-        -EventPublisher eventPublisher
-        -IdGenerator idGenerator
-        +execute(input) Promise~CreateOrderOutput~
-    }
+    class CreateOrderHandler
+    class InMemoryOrderCommandRepository
+    class InMemoryOrderQueryRepository
+    class InMemoryEventPublisher
+    class UuidGeneratorAdapter
 
-    class ConfirmOrderHandler {
-        -OrderCommandRepository orderRepository
-        -EventPublisher eventPublisher
-        +execute(orderId) Promise~ConfirmOrderOutput~
-    }
-
-    class CancelOrderHandler {
-        -OrderCommandRepository orderRepository
-        -EventPublisher eventPublisher
-        +execute(orderId, reason) Promise~CancelOrderOutput~
-    }
-
-    %% Query Handlers
-    class GetOrderHandler {
-        -OrderQueryRepository queryRepository
-        +execute(orderId) Promise~OrderView~
-    }
-
-    class ListOrdersHandler {
-        -OrderQueryRepository queryRepository
-        +execute(customerId?) Promise~OrderView[]~
-    }
-
-    %% Relationships
     CreateOrderUseCase <|.. CreateOrderHandler : implements
-    ConfirmOrderUseCase <|.. ConfirmOrderHandler : implements
-    CancelOrderUseCase <|.. CancelOrderHandler : implements
-    GetOrderUseCase <|.. GetOrderHandler : implements
-    ListOrdersUseCase <|.. ListOrdersHandler : implements
+    OrderCommandRepository <|.. InMemoryOrderCommandRepository : implements
+    OrderQueryRepository <|.. InMemoryOrderQueryRepository : implements
+    EventPublisher <|.. InMemoryEventPublisher : implements
+    IdGenerator <|.. UuidGeneratorAdapter : implements
 
     CreateOrderHandler --> OrderCommandRepository : uses
     CreateOrderHandler --> EventPublisher : uses
     CreateOrderHandler --> IdGenerator : uses
-    ConfirmOrderHandler --> OrderCommandRepository : uses
-    ConfirmOrderHandler --> EventPublisher : uses
-    CancelOrderHandler --> OrderCommandRepository : uses
-    CancelOrderHandler --> EventPublisher : uses
-    GetOrderHandler --> OrderQueryRepository : uses
-    ListOrdersHandler --> OrderQueryRepository : uses
-```
-
-### Adapter Layer 類別圖
-
-```mermaid
-classDiagram
-    class OrderController {
-        -CreateOrderUseCase createOrderUseCase
-        -GetOrderUseCase getOrderUseCase
-        -ListOrdersUseCase listOrdersUseCase
-        -ConfirmOrderUseCase confirmOrderUseCase
-        -CancelOrderUseCase cancelOrderUseCase
-        +createOrder(body) Promise~ApiResponse~
-        +getOrder(orderId) Promise~ApiResponse~
-        +listOrders(customerId?) Promise~ApiResponse~
-        +confirmOrder(orderId) Promise~ApiResponse~
-        +cancelOrder(orderId, reason) Promise~ApiResponse~
-    }
-
-    class InMemoryOrderCommandRepository {
-        -Map store
-        +save(order: Order) Promise~void~
-        +findById(id: string) Promise~Order | null~
-        +clear() void
-        +size() number
-    }
-
-    class InMemoryOrderQueryRepository {
-        -Map store
-        +sync(readModel: OrderReadModel) void
-        +findById(id) Promise~OrderReadModel | null~
-        +findAll() Promise~OrderReadModel[]~
-        +findByCustomerId(customerId) Promise~OrderReadModel[]~
-        +clear() void
-    }
-
-    class InMemoryEventPublisher {
-        -DomainEvent[] publishedEvents
-        -InMemoryOrderCommandRepository commandRepo
-        -InMemoryOrderQueryRepository queryRepo
-        +publish(event) Promise~void~
-        +publishAll(events) Promise~void~
-        -syncReadModel(orderId) Promise~void~
-    }
-
-    class UuidGenerator {
-        +generate() string
-    }
-
-    class FixedIdGenerator {
-        -string[] ids
-        -number index
-        +generate() string
-    }
-
-    class OrderCommandRepository {
-        <<interface>>
-    }
-
-    class OrderQueryRepository {
-        <<interface>>
-    }
-
-    class EventPublisher {
-        <<interface>>
-    }
-
-    class IdGenerator {
-        <<interface>>
-    }
-
-    OrderCommandRepository <|.. InMemoryOrderCommandRepository : implements
-    OrderQueryRepository <|.. InMemoryOrderQueryRepository : implements
-    EventPublisher <|.. InMemoryEventPublisher : implements
-    IdGenerator <|.. UuidGenerator : implements
-    IdGenerator <|.. FixedIdGenerator : implements
-
-    InMemoryEventPublisher --> InMemoryOrderCommandRepository : reads from
-    InMemoryEventPublisher --> InMemoryOrderQueryRepository : syncs to
-
-    OrderController --> CreateOrderUseCase : uses
-    OrderController --> GetOrderUseCase : uses
-    OrderController --> ConfirmOrderUseCase : uses
-    OrderController --> CancelOrderUseCase : uses
-
-    class CreateOrderUseCase {
-        <<interface>>
-    }
-
-    class GetOrderUseCase {
-        <<interface>>
-    }
-
-    class ConfirmOrderUseCase {
-        <<interface>>
-    }
-
-    class CancelOrderUseCase {
-        <<interface>>
-    }
 ```
 
 ---
 
 ## 循序圖
 
-### 1. 建立訂單（Command Flow - 寫入端）
+### 建立訂單（Command 流程）
 
 ```mermaid
 sequenceDiagram
-    actor User as 使用者
-    participant Ctrl as OrderController<br/>(Driving Adapter)
-    participant Handler as CreateOrderHandler<br/>(Command Handler)
-    participant IdGen as IdGenerator<br/>(Output Port)
-    participant Order as Order<br/>(Aggregate Root)
-    participant CmdRepo as OrderCommandRepository<br/>(Output Port)
-    participant EvtPub as EventPublisher<br/>(Output Port)
-    participant QryRepo as OrderQueryRepository<br/>(Read Model)
+    actor Client
+    participant REST as OrderRestController
+    participant UC as CreateOrderHandler
+    participant IG as IdGenerator
+    participant Order as Order
+    participant CR as CommandRepository
+    participant EP as EventPublisher
+    participant QR as QueryRepository
 
-    User->>Ctrl: createOrder({customerId, items})
-    activate Ctrl
-    Ctrl->>Handler: execute(input)
-    activate Handler
-
-    Handler->>IdGen: generate()
-    IdGen-->>Handler: "order-uuid-123"
-
-    Handler->>Order: Order.create("order-uuid-123", "customer-1")
-    activate Order
-    Note over Order: 產生 OrderCreatedEvent
-    Order-->>Handler: order instance
-    deactivate Order
-
-    loop 每個訂單項目
-        Handler->>Order: addItem(new OrderItem(...))
-        Note over Order: 驗證狀態必須是 DRAFT<br/>計算 subtotal<br/>產生 OrderItemAddedEvent
+    Client->>REST: POST /api/orders
+    REST->>REST: 轉換 Request → Input DTO
+    REST->>UC: execute(CreateOrderInput)
+    UC->>IG: generate()
+    IG-->>UC: orderId (UUID)
+    UC->>Order: Order.create(id, customerId)
+    Order-->>UC: order (DRAFT)
+    loop 每個 OrderItem
+        UC->>Order: addItem(item)
+        Order->>Order: 產生 OrderItemAddedEvent
     end
-
-    Handler->>CmdRepo: save(order)
-    Note over CmdRepo: 序列化並儲存至 Write Store
-
-    Handler->>EvtPub: publishAll(domainEvents)
-    activate EvtPub
-    Note over EvtPub: 收到事件後同步 Read Model
-
-    EvtPub->>CmdRepo: findById(orderId)
-    CmdRepo-->>EvtPub: order
-
-    EvtPub->>QryRepo: sync(orderReadModel)
-    Note over QryRepo: 儲存扁平化的讀取模型<br/>（預先計算 totalAmount 等欄位）
-    deactivate EvtPub
-
-    Handler->>Order: clearEvents()
-
-    Handler-->>Ctrl: {orderId, totalAmount, status, itemCount}
-    deactivate Handler
-
-    Ctrl-->>User: ApiResponse {success: true, data: {...}}
-    deactivate Ctrl
+    UC->>CR: save(order)
+    UC->>EP: publishAll(events)
+    EP->>CR: findById(orderId)
+    CR-->>EP: order
+    EP->>EP: 轉換 Order → ReadModel
+    EP->>QR: sync(readModel)
+    UC-->>REST: CreateOrderOutput
+    REST-->>Client: 201 Created + JSON
 ```
 
-### 2. 查詢訂單（Query Flow - 讀取端）
+### 確認訂單（狀態轉換）
 
 ```mermaid
 sequenceDiagram
-    actor User as 使用者
-    participant Ctrl as OrderController<br/>(Driving Adapter)
-    participant Handler as GetOrderHandler<br/>(Query Handler)
-    participant QryRepo as OrderQueryRepository<br/>(Read Model Store)
+    actor Client
+    participant REST as OrderRestController
+    participant UC as ConfirmOrderHandler
+    participant CR as CommandRepository
+    participant Order as Order
+    participant EP as EventPublisher
+    participant QR as QueryRepository
 
-    User->>Ctrl: getOrder("order-uuid-123")
-    activate Ctrl
-    Ctrl->>Handler: execute("order-uuid-123")
-    activate Handler
-
-    Handler->>QryRepo: findById("order-uuid-123")
-    activate QryRepo
-    Note over QryRepo: 直接讀取預先計算好的<br/>扁平化 Read Model
-    QryRepo-->>Handler: OrderReadModel
-    deactivate QryRepo
-
-    Note over Handler: 不需要經過 Domain Model<br/>不需要業務邏輯計算<br/>直接將 ReadModel 轉為 View
-
-    Handler-->>Ctrl: OrderView {id, items, totalAmount, status, ...}
-    deactivate Handler
-
-    Ctrl-->>User: ApiResponse {success: true, data: {...}}
-    deactivate Ctrl
+    Client->>REST: POST /api/orders/{id}/confirm
+    REST->>UC: execute(orderId)
+    UC->>CR: findById(orderId)
+    CR-->>UC: Optional~Order~
+    UC->>Order: confirm()
+    Note over Order: DRAFT → CONFIRMED
+    Order->>Order: 產生 OrderConfirmedEvent
+    UC->>CR: save(order)
+    UC->>EP: publishAll(events)
+    EP->>QR: sync(updatedReadModel)
+    UC-->>REST: ConfirmOrderOutput
+    REST-->>Client: 200 OK + JSON
 ```
 
-### 3. 確認訂單（Command Flow - 狀態轉換）
+### 查詢訂單（Query 流程 — CQRS 讀取端）
 
 ```mermaid
 sequenceDiagram
-    actor User as 使用者
-    participant Ctrl as OrderController
-    participant Handler as ConfirmOrderHandler
-    participant CmdRepo as OrderCommandRepository
-    participant Order as Order (Aggregate Root)
-    participant EvtPub as EventPublisher
-    participant QryRepo as OrderQueryRepository
+    actor Client
+    participant REST as OrderRestController
+    participant UC as GetOrderHandler
+    participant QR as QueryRepository
 
-    User->>Ctrl: confirmOrder("order-123")
-    Ctrl->>Handler: execute("order-123")
+    Client->>REST: GET /api/orders/{id}
+    REST->>UC: execute(orderId)
+    UC->>QR: findById(orderId)
+    QR-->>UC: Optional~OrderReadModel~
+    UC->>UC: 轉換 ReadModel → OrderView
+    UC-->>REST: OrderView
+    REST-->>Client: 200 OK + JSON
 
-    Handler->>CmdRepo: findById("order-123")
-    CmdRepo-->>Handler: order (DRAFT)
-
-    Handler->>Order: confirm()
-    activate Order
-    Note over Order: 驗證：狀態 == DRAFT?<br/>驗證：items.length > 0?<br/>狀態轉換 DRAFT → CONFIRMED<br/>產生 OrderConfirmedEvent
-    Order-->>Handler: void
-    deactivate Order
-
-    Handler->>CmdRepo: save(order)
-    Handler->>EvtPub: publishAll(events)
-    EvtPub->>QryRepo: sync(updatedReadModel)
-    Note over QryRepo: Read Model 的 status<br/>更新為 "CONFIRMED"
-
-    Handler-->>Ctrl: {orderId, status: "CONFIRMED", totalAmount}
-    Ctrl-->>User: ApiResponse {success: true}
+    Note over UC,QR: Query 端完全不碰 Domain 層！
 ```
 
-### 4. 訂單狀態機
+---
+
+## 狀態機圖
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DRAFT : Order.create()
-    DRAFT --> DRAFT : addItem()
-    DRAFT --> CONFIRMED : confirm()
-    DRAFT --> CANCELLED : cancel(reason)
-    CONFIRMED --> CANCELLED : cancel(reason)
+    [*] --> DRAFT: Order.create()
+    DRAFT --> DRAFT: addItem()
+    DRAFT --> CONFIRMED: confirm()
+    DRAFT --> CANCELLED: cancel(reason)
+    CONFIRMED --> CANCELLED: cancel(reason)
 
-    CONFIRMED --> CONFIRMED : [不可新增項目]
-    CANCELLED --> CANCELLED : [不可再操作]
+    DRAFT: 草稿狀態
+    DRAFT: ・可新增項目
+    DRAFT: ・可確認或取消
 
-    note right of DRAFT : 初始狀態<br/>可新增項目
-    note right of CONFIRMED : 已確認<br/>可取消
-    note right of CANCELLED : 最終狀態<br/>不可變更
-```
+    CONFIRMED: 已確認
+    CONFIRMED: ・不可新增項目
+    CONFIRMED: ・可取消
 
-### 5. 依賴注入組裝流程
-
-```mermaid
-sequenceDiagram
-    participant DI as DependencyInjection<br/>(createContainer)
-    participant CmdRepo as InMemoryOrderCommandRepo
-    participant QryRepo as InMemoryOrderQueryRepo
-    participant EvtPub as InMemoryEventPublisher
-    participant IdGen as UuidGenerator
-    participant CreateH as CreateOrderHandler
-    participant ConfirmH as ConfirmOrderHandler
-    participant CancelH as CancelOrderHandler
-    participant GetH as GetOrderHandler
-    participant ListH as ListOrdersHandler
-    participant Ctrl as OrderController
-
-    Note over DI: 第一步：建立被驅動適配器（Output）
-    DI->>CmdRepo: new InMemoryOrderCommandRepository()
-    DI->>QryRepo: new InMemoryOrderQueryRepository()
-    DI->>EvtPub: new InMemoryEventPublisher(cmdRepo, qryRepo)
-    DI->>IdGen: new UuidGenerator()
-
-    Note over DI: 第二步：建立應用層 Handlers
-    DI->>CreateH: new CreateOrderHandler(cmdRepo, evtPub, idGen)
-    DI->>ConfirmH: new ConfirmOrderHandler(cmdRepo, evtPub)
-    DI->>CancelH: new CancelOrderHandler(cmdRepo, evtPub)
-    DI->>GetH: new GetOrderHandler(qryRepo)
-    DI->>ListH: new ListOrdersHandler(qryRepo)
-
-    Note over DI: 第三步：建立驅動適配器（Input）
-    DI->>Ctrl: new OrderController(createH, getH, listH, confirmH, cancelH)
+    CANCELLED: 已取消
+    CANCELLED: ・不可再次取消
+    CANCELLED: ・不可新增項目
 ```
 
 ---
 
-## 三大架構概念詳解
+## SOLID 原則對照
 
-### 1. SOLID 原則
+### S — 單一職責原則 (SRP)
 
-SOLID 是五個物件導向設計原則的首字母縮寫，指引我們寫出可維護、可擴展的程式碼。
+| 類別 | 職責 | 變更原因 |
+|------|------|----------|
+| `Order` | 訂單業務邏輯 | 業務規則變更 |
+| `OrderRestController` | HTTP ↔ UseCase 轉換 | API 規格變更 |
+| `CreateOrderHandler` | 建立訂單應用邏輯 | 建立流程變更 |
+| `GetOrderHandler` | 查詢訂單應用邏輯 | 查詢需求變更 |
+| `InMemoryEventPublisher` | 事件發布與 Read Model 同步 | 同步機制變更 |
 
-#### S - Single Responsibility Principle（單一職責原則）
-
-> 一個類別應該只有一個引起它變更的理由。
-
-| 類別 | 職責 | 檔案位置 |
-|------|------|---------|
-| `Order` | 訂單業務邏輯（狀態轉換、驗證） | `src/domain/models/Order.ts` |
-| `OrderItem` | 訂單項目計算（subtotal） | `src/domain/models/OrderItem.ts` |
-| `CreateOrderHandler` | 只負責「建立訂單」 | `src/application/commands/CreateOrderHandler.ts` |
-| `GetOrderHandler` | 只負責「查詢訂單」 | `src/application/queries/GetOrderHandler.ts` |
-| `OrderController` | 只負責「HTTP 請求轉換」 | `src/adapters/input/api/OrderController.ts` |
-
-**反例對照**：如果把建立、查詢、確認、取消全部放在同一個 `OrderService` 中，任何一個操作的變更都會影響整個類別。
-
-#### O - Open/Closed Principle（開放封閉原則）
-
-> 軟體實體應該對擴展開放，對修改封閉。
-
-```typescript
-// DomainEvent 介面對擴展開放 ─ 新增事件類型不需修改現有程式碼
-interface DomainEvent { eventId; eventType; occurredOn; aggregateId; }
-
-class OrderCreatedEvent   implements DomainEvent { ... }  // 已有
-class OrderConfirmedEvent implements DomainEvent { ... }  // 已有
-class OrderShippedEvent   implements DomainEvent { ... }  // ← 未來新增，不需改動其他類別
-```
-
-#### L - Liskov Substitution Principle（里氏替換原則）
-
-> 子類別必須可以替換其父類別而不影響程式的正確性。
+### O — 開放封閉原則 (OCP)
 
 ```mermaid
 graph LR
-    Interface["IdGenerator<br/>(介面)"]
-    UUID["UuidGenerator<br/>(生產)"]
-    Fixed["FixedIdGenerator<br/>(測試)"]
+    A["DomainEvent<br/>sealed interface"] --> B["OrderCreatedEvent"]
+    A --> C["OrderConfirmedEvent"]
+    A --> D["OrderCancelledEvent"]
+    A --> E["OrderItemAddedEvent"]
+    A -.-> F["未來: OrderShippedEvent"]
 
-    Interface -.->|實作| UUID
-    Interface -.->|實作| Fixed
-
-    Handler["CreateOrderHandler"]
-    Handler -->|依賴| Interface
-
-    style Interface fill:#7ab648,color:#fff
+    style F fill:#ff9,stroke:#333,stroke-dasharray: 5 5
 ```
 
-`UuidGenerator` 和 `FixedIdGenerator` 都實作 `IdGenerator`，可在任何場景無縫替換。測試時用 `FixedIdGenerator`，生產環境用 `UuidGenerator`。
+新增事件類型只需新增 `record` 並加入 `permits` 清單，不需修改現有程式碼。
 
-#### I - Interface Segregation Principle（介面隔離原則）
-
-> 客戶端不應該被迫依賴它不使用的介面。
+### L — 里氏替換原則 (LSP)
 
 ```mermaid
 graph TB
-    subgraph "ISP 實踐：拆分為多個小介面"
-        CreateUC["CreateOrderUseCase<br/>execute(input)"]
-        GetUC["GetOrderUseCase<br/>execute(orderId)"]
-        ConfirmUC["ConfirmOrderUseCase<br/>execute(orderId)"]
-        CancelUC["CancelOrderUseCase<br/>execute(orderId, reason)"]
-    end
+    A["IdGenerator<br/>interface"] --> B["UuidGeneratorAdapter<br/>生產環境"]
+    A --> C["FixedIdGenerator<br/>測試環境"]
 
-    subgraph "ISP 反例：一個大介面"
-        BigService["OrderService<br/>createOrder()<br/>getOrder()<br/>confirmOrder()<br/>cancelOrder()<br/>listOrders()"]
-    end
+    D["OrderCommandRepository<br/>interface"] --> E["InMemoryOrderCommandRepository"]
+    D -.-> F["未來: JpaOrderCommandRepository"]
 
-    style CreateUC fill:#7ab648,color:#fff
-    style GetUC fill:#7ab648,color:#fff
-    style ConfirmUC fill:#7ab648,color:#fff
-    style CancelUC fill:#7ab648,color:#fff
-    style BigService fill:#cc4444,color:#fff
+    style F fill:#ff9,stroke:#333,stroke-dasharray: 5 5
 ```
 
-同樣，CQRS 中的 `OrderCommandRepository`（寫入）和 `OrderQueryRepository`（讀取）也是 ISP 的體現 ─ 查詢端不需要 `save()` 方法。
-
-#### D - Dependency Inversion Principle（依賴反轉原則）
-
-> 高階模組不應該依賴低階模組，兩者都應該依賴抽象。
-
-```mermaid
-graph TB
-    subgraph "DIP 實踐（本專案）"
-        Handler1["CreateOrderHandler<br/>(高階模組)"]
-        Port1["OrderCommandRepository<br/>(抽象介面 - 定義在應用層)"]
-        Adapter1["InMemoryOrderCommandRepo<br/>(低階模組)"]
-
-        Handler1 -->|依賴| Port1
-        Adapter1 -.->|實作| Port1
-    end
-
-    subgraph "DIP 反例"
-        Handler2["CreateOrderHandler<br/>(高階模組)"]
-        Adapter2["PostgresRepository<br/>(低階模組)"]
-
-        Handler2 -->|直接依賴| Adapter2
-    end
-
-    style Port1 fill:#7ab648,color:#fff
-    style Handler2 fill:#cc4444,color:#fff
-    style Adapter2 fill:#cc4444,color:#fff
-```
-
-在 DI Container 中，所有具體類別只在這一處被實例化：
-
-```typescript
-// DependencyInjection.ts - 唯一知道所有具體類別的地方
-const commandRepo = new InMemoryOrderCommandRepository(); // ← 具體類別
-const createOrderHandler = new CreateOrderHandler(
-  commandRepo,     // ← 透過 OrderCommandRepository 介面注入
-  eventPublisher,  // ← 透過 EventPublisher 介面注入
-  idGenerator,     // ← 透過 IdGenerator 介面注入
-);
-```
-
----
-
-### 2. 六角形架構 (Hexagonal Architecture)
-
-又稱 **Ports & Adapters** 架構，由 Alistair Cockburn 於 2005 年提出。
-
-#### 核心思想
-
-> 讓應用程式核心與外部世界（UI、資料庫、API）完全隔離，透過「Port（介面）」和「Adapter（適配器）」來溝通。
-
-```mermaid
-graph TB
-    subgraph Hex["六角形核心"]
-        subgraph Domain["Domain"]
-            D["Order<br/>OrderItem<br/>DomainEvent"]
-        end
-        subgraph App["Application"]
-            IP["Input Ports<br/>CreateOrderUseCase<br/>GetOrderUseCase<br/>..."]
-            OP["Output Ports<br/>OrderCommandRepository<br/>OrderQueryRepository<br/>EventPublisher<br/>IdGenerator"]
-            CH["Command Handlers"]
-            QH["Query Handlers"]
-        end
-    end
-
-    subgraph Left["驅動端（左側）"]
-        REST["REST Controller"]
-        CLI["CLI 程式"]
-        Test["自動化測試"]
-    end
-
-    subgraph Right["被驅動端（右側）"]
-        PG["PostgreSQL"]
-        Mem["InMemory"]
-        Kafka["Kafka"]
-    end
-
-    REST -->|uses| IP
-    CLI -->|uses| IP
-    Test -->|uses| IP
-
-    OP -.->|implemented by| PG
-    OP -.->|implemented by| Mem
-    OP -.->|implemented by| Kafka
-
-    style Domain fill:#4a90d9,color:#fff
-    style App fill:#7ab648,color:#fff
-    style Left fill:#e8943a,color:#fff
-    style Right fill:#e8943a,color:#fff
-```
-
-#### 三層對應
-
-| 層級 | 別名 | 本專案對應 | 職責 |
-|------|------|----------|------|
-| **Domain** | 核心 / Entity | `Order`, `OrderItem`, `Product`, `DomainEvent` | 純業務邏輯，零外部依賴 |
-| **Application** | Use Cases / Ports | `Ports/`, `Commands/`, `Queries/` | 定義介面、協調業務流程 |
-| **Adapters** | Infrastructure | `Controller`, `Repository`, `Publisher` | 與外部技術對接 |
-
-#### Port 與 Adapter 對照表
-
-| Port（介面） | 方向 | Adapter（實作） | 用途 |
-|-------------|------|----------------|------|
-| `CreateOrderUseCase` | Input | `OrderController` 呼叫 | HTTP → Use Case |
-| `GetOrderUseCase` | Input | `OrderController` 呼叫 | HTTP → Use Case |
-| `OrderCommandRepository` | Output | `InMemoryOrderCommandRepository` | 持久化寫入 |
-| `OrderQueryRepository` | Output | `InMemoryOrderQueryRepository` | 持久化讀取 |
-| `EventPublisher` | Output | `InMemoryEventPublisher` | 事件發布 |
-| `IdGenerator` | Output | `UuidGenerator` / `FixedIdGenerator` | ID 產生 |
-
----
-
-### 3. CQRS 模式
-
-由 Greg Young 基於 Bertrand Meyer 的 CQS (Command-Query Separation) 原則提出。
-
-#### 核心思想
-
-> 將「改變狀態的操作（Command）」和「讀取狀態的操作（Query）」分離到不同的模型與路徑中。
+### I — 介面隔離原則 (ISP)
 
 ```mermaid
 graph LR
-    subgraph CommandSide["命令端（寫入）"]
-        CC["OrderController"]
-        CH["Command Handlers<br/>CreateOrderHandler<br/>ConfirmOrderHandler<br/>CancelOrderHandler"]
-        DM["Domain Model<br/>Order Aggregate"]
-        WS["Command Repository<br/>(Write Store)"]
-
-        CC -->|命令| CH
-        CH -->|業務邏輯| DM
-        CH -->|persist| WS
+    subgraph "正確做法 ✅ 五個小介面"
+        B["CreateOrderUseCase"]
+        C["ConfirmOrderUseCase"]
+        D["CancelOrderUseCase"]
+        E["GetOrderUseCase"]
+        F["ListOrdersUseCase"]
     end
 
-    subgraph Sync["同步機制"]
-        EP["EventPublisher<br/>事件驅動同步"]
+    subgraph "錯誤示範 ❌ 一個大介面"
+        A["OrderService<br/>createOrder()<br/>confirmOrder()<br/>cancelOrder()<br/>getOrder()<br/>listOrders()"]
     end
-
-    subgraph QuerySide["查詢端（讀取）"]
-        QC["OrderController"]
-        QH["Query Handlers<br/>GetOrderHandler<br/>ListOrdersHandler"]
-        RM["Read Model<br/>OrderReadModel<br/>(扁平化/非正規化)"]
-        RS["Query Repository<br/>(Read Store)"]
-
-        QC -->|查詢| QH
-        QH -->|直接讀取| RS
-        RS -->|回傳| RM
-    end
-
-    WS -->|Domain Events| EP
-    EP -->|同步| RS
-
-    style CommandSide fill:#e8943a,color:#fff
-    style QuerySide fill:#4a90d9,color:#fff
-    style Sync fill:#7ab648,color:#fff
 ```
 
-#### 寫入模型 vs 讀取模型
+CQRS 也是 ISP 的體現：`OrderCommandRepository`（寫入）≠ `OrderQueryRepository`（讀取）。
 
-| 面向 | Command Model（寫入） | Query Model（讀取） |
-|------|---------------------|-------------------|
-| **資料結構** | `Order` 聚合根（正規化、封裝業務邏輯） | `OrderReadModel`（扁平化、非正規化） |
-| **行為** | `addItem()`, `confirm()`, `cancel()` | 無行為，純資料結構 |
-| **驗證** | 嚴格的業務規則驗證 | 不需要驗證 |
-| **計算** | 即時計算 `totalAmount` | 預先計算好 `totalAmount` |
-| **效能優化** | 事務一致性 | 查詢速度（可加快取、索引等） |
-| **儲存庫** | `OrderCommandRepository` | `OrderQueryRepository` |
+### D — 依賴反轉原則 (DIP)
 
-#### 程式碼比較
+```mermaid
+graph TB
+    subgraph "高層模組"
+        H["CreateOrderHandler"]
+    end
+    subgraph "抽象介面"
+        I1["OrderCommandRepository"]
+        I2["EventPublisher"]
+        I3["IdGenerator"]
+    end
+    subgraph "低層模組"
+        L1["InMemoryOrderCommandRepository"]
+        L2["InMemoryEventPublisher"]
+        L3["UuidGeneratorAdapter"]
+    end
+    subgraph "組裝"
+        BC["BeanConfiguration<br/>唯一知道具體類別的地方"]
+    end
 
-**Command Side - 經過完整的 Domain 邏輯：**
-```typescript
-// CreateOrderHandler.execute()
-const order = Order.create(orderId, customerId);     // 建立聚合根
-order.addItem(new OrderItem(productId, name, 2500, 1)); // 業務驗證
-await this.orderRepository.save(order);               // 寫入 Command Store
-await this.eventPublisher.publishAll(order.domainEvents); // 觸發事件 → 同步 Read Model
+    H -->|依賴| I1 & I2 & I3
+    L1 -->|實作| I1
+    L2 -->|實作| I2
+    L3 -->|實作| I3
+    BC -.->|建立並注入| H
 ```
 
-**Query Side - 直接讀取 Read Model，跳過 Domain 邏輯：**
-```typescript
-// GetOrderHandler.execute()
-const readModel = await this.queryRepository.findById(orderId); // 直接讀
-return { id: readModel.id, totalAmount: readModel.totalAmount, ... }; // 直接回傳
+`BeanConfiguration` 是唯一知道所有具體類別的地方。Domain 和 Application 層對 Spring 框架零依賴。
+
+---
+
+## CQRS 模式詳解
+
+### Command 端 vs Query 端
+
+```mermaid
+graph TB
+    subgraph "Command 端（寫入）"
+        C1["CreateOrderHandler"]
+        C2["ConfirmOrderHandler"]
+        C3["CancelOrderHandler"]
+        CR[("Command Store<br/>ConcurrentHashMap<br/>Order 聚合根")]
+    end
+
+    subgraph "事件同步"
+        EP["InMemoryEventPublisher<br/>發布事件 + 同步 Read Model"]
+    end
+
+    subgraph "Query 端（讀取）"
+        Q1["GetOrderHandler"]
+        Q2["ListOrdersHandler"]
+        QR[("Query Store<br/>ConcurrentHashMap<br/>OrderReadModel")]
+    end
+
+    C1 & C2 & C3 --> CR
+    C1 & C2 & C3 --> EP
+    EP --> QR
+    Q1 & Q2 --> QR
+```
+
+### 寫入模型 vs 讀取模型
+
+| 面向 | Command 端 | Query 端 |
+|------|-----------|----------|
+| **資料模型** | `Order`（聚合根） | `OrderReadModel`（record，扁平化） |
+| **儲存** | `OrderCommandRepository` | `OrderQueryRepository` |
+| **特性** | 包含領域邏輯、狀態驗證 | 無領域邏輯、預計算 |
+| **操作** | `save()`, `findById()` | `findById()`, `findAll()`, `findByCustomerId()` |
+
+---
+
+## 六角形架構詳解
+
+### 三層責任
+
+| 層級 | 責任 | Spring 依賴 | 範例 |
+|------|------|------------|------|
+| **Domain** | 核心業務規則 | ❌ 無 | `Order`, `OrderItem`, `DomainEvent` |
+| **Application** | 應用邏輯、Port 定義 | ❌ 無 | `CreateOrderHandler`, Use Case 介面 |
+| **Adapter** | 外部技術整合 | ✅ 有 | `OrderRestController`, InMemory 實作 |
+| **Infrastructure** | 組裝與配置 | ✅ 有 | `BeanConfiguration` |
+
+### Port 與 Adapter 對照
+
+| Port（介面） | 方向 | Adapter（實作） |
+|-------------|------|----------------|
+| `CreateOrderUseCase` | Input | `OrderRestController` 呼叫 |
+| `OrderCommandRepository` | Output | `InMemoryOrderCommandRepository` |
+| `OrderQueryRepository` | Output | `InMemoryOrderQueryRepository` |
+| `EventPublisher` | Output | `InMemoryEventPublisher` |
+| `IdGenerator` | Output | `UuidGeneratorAdapter` / `FixedIdGenerator` |
+
+---
+
+## 專案結構
+
+```
+src/
+├── main/java/com/example/hexagonal/
+│   ├── HexagonalCqrsApplication.java          # Spring Boot 入口
+│   │
+│   ├── domain/                                 # 🔴 領域層（零框架依賴）
+│   │   ├── model/
+│   │   │   ├── Order.java                      #   聚合根（Aggregate Root）
+│   │   │   ├── OrderItem.java                  #   值物件 (record)
+│   │   │   ├── OrderStatus.java                #   狀態列舉
+│   │   │   └── Product.java                    #   產品值物件 (record)
+│   │   ├── event/
+│   │   │   ├── DomainEvent.java                #   sealed interface
+│   │   │   ├── OrderCreatedEvent.java          #   record
+│   │   │   ├── OrderItemAddedEvent.java        #   record
+│   │   │   ├── OrderConfirmedEvent.java        #   record
+│   │   │   └── OrderCancelledEvent.java        #   record
+│   │   └── exception/
+│   │       ├── DomainException.java
+│   │       ├── OrderNotFoundException.java
+│   │       ├── InvalidOrderOperationException.java
+│   │       └── InvalidOrderItemException.java
+│   │
+│   ├── application/                            # 🟡 應用層（零框架依賴）
+│   │   ├── port/
+│   │   │   ├── input/                          #   輸入埠（Use Case 介面）
+│   │   │   │   ├── CreateOrderUseCase.java
+│   │   │   │   ├── ConfirmOrderUseCase.java
+│   │   │   │   ├── CancelOrderUseCase.java
+│   │   │   │   ├── GetOrderUseCase.java
+│   │   │   │   └── ListOrdersUseCase.java
+│   │   │   └── output/                         #   輸出埠
+│   │   │       ├── OrderCommandRepository.java
+│   │   │       ├── OrderQueryRepository.java
+│   │   │       ├── EventPublisher.java
+│   │   │       └── IdGenerator.java
+│   │   ├── command/                            #   Command Handlers（寫入端）
+│   │   │   ├── CreateOrderHandler.java
+│   │   │   ├── ConfirmOrderHandler.java
+│   │   │   └── CancelOrderHandler.java
+│   │   ├── query/                              #   Query Handlers（讀取端）
+│   │   │   ├── GetOrderHandler.java
+│   │   │   └── ListOrdersHandler.java
+│   │   └── dto/                                #   DTO（全部為 record）
+│   │       ├── CreateOrderInput.java
+│   │       ├── CreateOrderOutput.java
+│   │       ├── OrderItemInput.java
+│   │       ├── OrderItemView.java
+│   │       ├── OrderView.java
+│   │       ├── OrderReadModel.java
+│   │       ├── ConfirmOrderOutput.java
+│   │       └── CancelOrderOutput.java
+│   │
+│   ├── adapter/                                # 🟢 適配器層
+│   │   ├── input/rest/                         #   驅動適配器
+│   │   │   ├── OrderRestController.java
+│   │   │   ├── GlobalExceptionHandler.java
+│   │   │   └── dto/
+│   │   │       ├── CreateOrderRequest.java
+│   │   │       └── CancelOrderRequest.java
+│   │   └── output/                             #   被驅動適配器
+│   │       ├── persistence/
+│   │       │   ├── InMemoryOrderCommandRepository.java
+│   │       │   └── InMemoryOrderQueryRepository.java
+│   │       ├── messaging/
+│   │       │   └── InMemoryEventPublisher.java
+│   │       ├── UuidGeneratorAdapter.java
+│   │       └── FixedIdGenerator.java
+│   │
+│   └── infrastructure/config/                  # ⚙️ 基礎設施
+│       └── BeanConfiguration.java              #   DI 容器
+│
+└── test/java/com/example/hexagonal/
+    ├── domain/model/
+    │   └── OrderTest.java                      # 25 個領域測試
+    ├── application/
+    │   ├── command/
+    │   │   ├── CreateOrderHandlerTest.java     # 5 個 Command 測試
+    │   │   └── ConfirmAndCancelHandlerTest.java # 5 個狀態轉換測試
+    │   └── query/
+    │       └── GetOrderHandlerTest.java        # 4 個 Query 測試
+    └── adapter/input/rest/
+        └── OrderRestControllerTest.java        # 7 個 Spring Boot 整合測試
 ```
 
 ---
 
-## 架構比較與優劣分析
+## API 端點
 
-### 六角形架構 vs 傳統三層式架構 vs Clean Architecture
-
-```mermaid
-graph TB
-    subgraph Traditional["傳統三層式"]
-        direction TB
-        P1["Presentation"]
-        B1["Business Logic"]
-        D1["Data Access"]
-        P1 --> B1 --> D1
-    end
-
-    subgraph Hexagonal["六角形架構"]
-        direction TB
-        A2["Adapters (Input/Output)"]
-        AP2["Application (Ports)"]
-        DM2["Domain"]
-        A2 --> AP2 --> DM2
-    end
-
-    subgraph Clean["Clean Architecture"]
-        direction TB
-        FW3["Frameworks & Drivers"]
-        IA3["Interface Adapters"]
-        UC3["Use Cases"]
-        E3["Entities"]
-        FW3 --> IA3 --> UC3 --> E3
-    end
-
-    style Traditional fill:#cc4444,color:#fff
-    style Hexagonal fill:#7ab648,color:#fff
-    style Clean fill:#4a90d9,color:#fff
-```
-
-| 面向 | 傳統三層式 | 六角形架構 | Clean Architecture |
-|------|----------|----------|-------------------|
-| **核心概念** | UI → Logic → DB | Ports & Adapters | Dependency Rule |
-| **依賴方向** | 上層依賴下層 | 外層依賴內層 | 外層依賴內層 |
-| **DB 依賴** | Business 直接依賴 DB 層 | 透過 Output Port 抽象 | 透過 Gateway 介面抽象 |
-| **可測試性** | 中等（需 mock DB） | 高（Port 可替換） | 高（同六角形） |
-| **複雜度** | 低 | 中 | 高（層數更多） |
-| **適合規模** | 小型專案 | 中大型專案 | 大型專案 |
-| **學習曲線** | 低 | 中 | 高 |
-
-### 六角形架構優劣分析
-
-| | 說明 |
-|---|------|
-| **優點** | |
-| 可測試性極高 | Domain 零依賴，可直接單元測試；Adapter 可輕鬆替換為 InMemory 實作 |
-| 技術可替換性 | 更換資料庫只需新增 Adapter，核心不變 |
-| 業務邏輯純粹 | Domain 層不受框架、資料庫等技術選擇影響 |
-| 關注點分離 | 每一層有明確的職責邊界 |
-| 並行開發 | 定義好 Port 介面後，不同團隊可以同時開發各層 |
-| **缺點** | |
-| 前期成本高 | 需要定義大量介面和適配器，簡單 CRUD 可能過度設計 |
-| 學習門檻 | 團隊成員需要理解 Port/Adapter 概念 |
-| 間接性增加 | 呼叫鏈變長：Controller → Port → Handler → Domain → Port → Adapter |
-| 檔案數量多 | 本專案 23 個原始檔，同樣功能用傳統架構可能只需 5-6 個 |
-
-### CQRS 優劣分析
-
-| | 說明 |
-|---|------|
-| **優點** | |
-| 讀寫獨立擴展 | 讀取端可加 cache/replica，寫入端可垂直擴展 |
-| 讀取效能優化 | Read Model 可針對查詢場景非正規化，避免多表 JOIN |
-| 模型簡化 | Command Model 專注業務邏輯，Query Model 專注展示需求 |
-| 職責清晰 | Command Handler 和 Query Handler 各司其職（SRP） |
-| Event Sourcing 基礎 | CQRS 是導入 Event Sourcing 的必要基礎 |
-| **缺點** | |
-| 複雜度增加 | 需要維護兩套模型和同步機制 |
-| 資料一致性 | Read Model 可能存在延遲（最終一致性），不適合強一致性場景 |
-| 開發成本 | 每個操作需要分開實作 Command 和 Query 兩端 |
-| 偵錯困難 | 事件驅動的同步機制在出錯時較難追蹤 |
-| 不適合簡單 CRUD | 讀寫模型幾乎相同時，CQRS 帶來不必要的複雜度 |
-
-### CQRS 三種演進層級
-
-| 層級 | 說明 | 一致性 | 複雜度 | 本專案 |
-|------|------|--------|--------|--------|
-| **Level 1** | 同一 DB，不同模型 | 強一致 | 低 | ✅ |
-| **Level 2** | 不同 DB（如 PostgreSQL + Elasticsearch） | 最終一致 | 中 | |
-| **Level 3** | Event Sourcing + Materialized View | 最終一致 | 高 | |
-
-### 何時該用 / 不該用這些架構？
-
-```mermaid
-graph TD
-    Start["你的專案是？"] --> Q1{"簡單 CRUD？<br/>少量業務邏輯？"}
-    Q1 -->|是| A1["傳統三層式即可<br/>不需要六角形/CQRS"]
-    Q1 -->|否| Q2{"業務邏輯複雜？<br/>需要長期維護？"}
-    Q2 -->|是| A2["採用六角形架構"]
-    Q2 -->|否| A1
-    A2 --> Q3{"讀寫比例懸殊？<br/>讀寫模型差異大？"}
-    Q3 -->|是| A3["加入 CQRS"]
-    Q3 -->|否| A4["僅六角形架構<br/>不需 CQRS"]
-    A3 --> Q4{"需要事件溯源？<br/>需要審計追蹤？"}
-    Q4 -->|是| A5["加入 Event Sourcing"]
-    Q4 -->|否| A6["Level 1 CQRS 即可"]
-
-    style A1 fill:#888,color:#fff
-    style A2 fill:#7ab648,color:#fff
-    style A3 fill:#4a90d9,color:#fff
-    style A4 fill:#7ab648,color:#fff
-    style A5 fill:#9b59b6,color:#fff
-    style A6 fill:#4a90d9,color:#fff
-```
+| 方法 | 路徑 | 說明 | 回應碼 |
+|------|------|------|--------|
+| `POST` | `/api/orders` | 建立訂單 | `201 Created` |
+| `GET` | `/api/orders/{id}` | 查詢訂單 | `200 OK` / `404` |
+| `GET` | `/api/orders` | 列出所有訂單 | `200 OK` |
+| `GET` | `/api/orders?customerId=xxx` | 依客戶篩選 | `200 OK` |
+| `POST` | `/api/orders/{id}/confirm` | 確認訂單 | `200 OK` |
+| `POST` | `/api/orders/{id}/cancel` | 取消訂單 | `200 OK` |
 
 ---
 
 ## 測試
 
+### 46 個測試，涵蓋三個層級
+
+| 測試類別 | 數量 | 層級 | 類型 |
+|----------|------|------|------|
+| `OrderTest` | 25 | Domain | 純單元測試（零框架依賴） |
+| `CreateOrderHandlerTest` | 5 | Application | 單元測試 |
+| `ConfirmAndCancelHandlerTest` | 5 | Application | 單元測試 |
+| `GetOrderHandlerTest` | 4 | Application (CQRS) | 單元測試 |
+| `OrderRestControllerTest` | 7 | Adapter | Spring Boot 整合測試 |
+
 ```bash
-npm test              # 執行全部測試
-npm run test:coverage # 測試覆蓋率
+mvn test
 ```
 
-### 測試結構總覽
+---
 
-| 測試檔案 | 層級 | 測試目標 | 數量 |
-|---------|------|---------|------|
-| `Order.test.ts` | Domain | 聚合根、值物件、狀態轉換、事件 | 25 |
-| `CreateOrderHandler.test.ts` | Application (Command) | 建立訂單流程、事件發布、讀取模型同步 | 5 |
-| `ConfirmAndCancelHandler.test.ts` | Application (Command) | 確認/取消訂單流程 | 5 |
-| `GetOrderHandler.test.ts` | Application (Query) | CQRS 查詢端、列表過濾 | 4 |
-| `OrderController.test.ts` | Adapter (Integration) | 端到端完整生命週期 | 7 |
-| **合計** | | | **46** |
+## 架構優劣比較
 
-### 為什麼測試這麼容易寫？
+### 六角形架構 vs 傳統分層架構
+
+| 面向 | 六角形架構 | 傳統分層架構 |
+|------|-----------|-------------|
+| **依賴方向** | 外 → 內（DIP） | 上 → 下 |
+| **框架耦合** | 核心無框架依賴 | 各層可能依賴框架 |
+| **可測試性** | 極高（純單元測試） | 需 Mock 框架 |
+| **可替換性** | 適配器可獨立替換 | 替換需修改多層 |
+| **學習成本** | 較高 | 較低 |
+| **適用場景** | 複雜領域、長期維護 | 簡單 CRUD |
+
+### CQRS vs 傳統 CRUD
+
+| 面向 | CQRS | 傳統 CRUD |
+|------|------|----------|
+| **資料模型** | 讀寫分離 | 單一模型 |
+| **查詢效能** | 可獨立優化 | 受限於寫入模型 |
+| **擴展性** | 讀寫獨立擴展 | 一起擴展 |
+| **複雜度** | 需要同步機制 | 簡單直接 |
+| **一致性** | 最終一致性 | 強一致性 |
+
+### 何時選擇此架構？
 
 ```mermaid
-graph LR
-    subgraph DomainTest["Domain 測試"]
-        DT["直接 new Order()<br/>零依賴<br/>零 Mock"]
-    end
-
-    subgraph AppTest["Application 測試"]
-        AT["注入 InMemory 適配器<br/>不需 Mock<br/>真實行為驗證"]
-    end
-
-    subgraph IntegrationTest["整合測試"]
-        IT["DI Container 組裝<br/>端到端驗證<br/>完整流程"]
-    end
-
-    DomainTest --> AppTest --> IntegrationTest
-
-    style DomainTest fill:#4a90d9,color:#fff
-    style AppTest fill:#7ab648,color:#fff
-    style IntegrationTest fill:#e8943a,color:#fff
+graph TD
+    Start["你的專案是？"] --> Q1{"簡單 CRUD？"}
+    Q1 -->|是| A1["傳統分層即可"]
+    Q1 -->|否| Q2{"業務邏輯複雜？<br/>需要長期維護？"}
+    Q2 -->|是| A2["採用六角形架構"]
+    Q2 -->|否| A1
+    A2 --> Q3{"讀寫比例懸殊？"}
+    Q3 -->|是| A3["加入 CQRS"]
+    Q3 -->|否| A4["僅六角形架構"]
 ```
 
-- **Domain 測試**：零依賴，直接 `new` 出來就能測
-- **Application 測試**：用 `InMemory` 適配器，不需要 Mock，驗證真實行為
-- **整合測試**：用 `createContainer()` 組裝所有元件，端到端驗證
+---
+
+## Java 21 特性展示
+
+| 特性 | 使用位置 | 說明 |
+|------|----------|------|
+| **Records** | DTO、Value Objects、Events | 不可變資料類別 |
+| **Sealed Interfaces** | `DomainEvent` | 限制子類型，編譯期型別安全 |
+| **Text Blocks** | 測試 JSON | 多行字串 |
+| **Virtual Threads** | `application.yml` | `spring.threads.virtual.enabled: true` |
 
 ---
 
-## 教學文件
+## 授權
 
-詳細的概念說明與程式碼解析，請參考 `docs/` 目錄：
-
-| 文件 | 內容 |
-|------|------|
-| [SOLID 原則](docs/01-solid-principles.md) | 五大原則詳細說明、程式碼對照、反例分析 |
-| [六角形架構](docs/02-hexagonal-architecture.md) | Ports & Adapters 詳解、三層結構、依賴方向 |
-| [CQRS 模式](docs/03-cqrs-pattern.md) | 命令查詢分離、讀寫模型、同步機制、三種層級 |
-
----
-
-## 延伸思考
-
-### 如何擴展此架構？
-
-| 擴展項目 | 做法 | 影響範圍 |
-|---------|------|---------|
-| 加入 REST API | 建立 Express/Fastify Driving Adapter | 只新增 Adapter，Application/Domain 不變 |
-| 換成 PostgreSQL | 實作 `PostgresOrderCommandRepository` | 只新增 Adapter，Application/Domain 不變 |
-| 加入 Redis 快取 | 實作帶快取的 `CachedOrderQueryRepository` | 只新增 Adapter |
-| 加入 Kafka 訊息佇列 | 實作 `KafkaEventPublisher` | 只新增 Adapter |
-| 加入 Event Sourcing | 將 Command Store 改為 Event Store | 新增 Adapter + 修改 EventPublisher |
-| 微服務拆分 | Command/Query 部署為獨立服務 | 架構層級的變更 |
-
-### 延伸閱讀
-
-- Alistair Cockburn - Hexagonal Architecture (Ports & Adapters)
-- Robert C. Martin - Clean Architecture
-- Greg Young - CQRS and Event Sourcing
-- Vaughn Vernon - Implementing Domain-Driven Design
-- Martin Fowler - CQRS Pattern
+本專案僅供教學用途。
